@@ -6,6 +6,11 @@ here="$(cd "$(dirname "$0")" && pwd)"
 plugin_id="iphone-camera"
 device="${IPHONE_CAMERA_DEVICE:-/dev/video43}"
 
+# The daemon port, so the firewall rule matches a customised setting.
+settings="${XDG_CONFIG_HOME:-$HOME/.config}/iphone-camera/settings.json"
+IPHONE_CAMERA_PORT="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["port"])' "$settings" 2>/dev/null || echo 4711)"
+export IPHONE_CAMERA_PORT
+
 if [[ ! -e "$device" ]]; then
   echo "==> Creating the virtual camera ($device, needs root)"
   if [[ -t 0 ]]; then

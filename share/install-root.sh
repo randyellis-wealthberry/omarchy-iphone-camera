@@ -40,3 +40,19 @@ if [[ -e /dev/video43 ]]; then
 else
   echo "==> /dev/video43 not present yet; a reboot will create it"
 fi
+
+echo "==> Firewall"
+port="${IPHONE_CAMERA_PORT:-4711}"
+if command -v ufw >/dev/null 2>&1 && systemctl is-active --quiet ufw 2>/dev/null; then
+  dev="$(ip route get 1.1.1.1 2>/dev/null | sed -n 's/.* dev \([^ ]*\).*/\1/p')"
+  cidr="$(ip -4 -o addr show dev "$dev" 2>/dev/null | awk '{print $4; exit}')"
+  subnet="$(python3 -c 'import ipaddress,sys; print(ipaddress.ip_network(sys.argv[1], strict=False))' "$cidr" 2>/dev/null || true)"
+  if [[ -n "$subnet" ]]; then
+    echo "    allowing TCP $port from $subnet"
+    ufw allow from "$subnet" to any port "$port" proto tcp comment 'iphone-camera' >/dev/null
+  else
+    echo "    could not determine the LAN subnet; allow TCP $port manually"
+  fi
+else
+  echo "    ufw is not active, nothing to open"
+fi

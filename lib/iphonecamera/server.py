@@ -219,6 +219,10 @@ class _Handler(BaseHTTPRequestHandler):
         self.close_connection = True
         connection = ws.WebSocket(self.connection)
         self.app.stats.client(+1)
+        print(
+            f"iphone-camera: phone connected from {self.client_address[0]}",
+            flush=True,
+        )
         try:
             for opcode, payload in connection.receive():
                 if opcode == ws.OP_BINARY:

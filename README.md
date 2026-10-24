@@ -138,6 +138,16 @@ not trust the network, use the phone's hotspot or a USB backend.
 
 ## Troubleshooting
 
+**Safari says it cannot connect to the server.** Usually a host firewall. If
+`ufw` is active it drops the port by default (`iphone-camera doctor` says so):
+
+```bash
+sudo ufw allow from 192.168.0.0/24 to any port 4711 proto tcp
+```
+
+Also confirm the phone is on the *same* network — a guest SSID with client
+isolation, a different VLAN, or cellular will all fail the same way.
+
 **Safari says the certificate is invalid.** Expected: the certificate is
 self-signed. *Show Details → visit this website*. If Safari refuses entirely,
 check that the URL uses the same IP the desktop currently has

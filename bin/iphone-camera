@@ -172,6 +172,28 @@ def set_resolution(name: str) -> None:
     print("Reload the page on the iPhone to apply it.")
 
 
+def firewall_warning(port: int) -> str | None:
+    """ufw defaults to DROP; without a rule the phone cannot reach us."""
+    conf = Path("/etc/ufw/ufw.conf")
+    if not conf.exists():
+        return None
+    try:
+        if "ENABLED=yes" not in conf.read_text(errors="replace"):
+            return None
+    except OSError:
+        return None
+    try:
+        rules = Path("/etc/ufw/user.rules").read_text(errors="replace")
+    except OSError:
+        return f"ufw is enabled; make sure TCP {port} is allowed from your LAN"
+    if f"--dport {port}" in rules:
+        return None
+    return (
+        f"ufw is enabled and has no rule for TCP {port}; "
+        f"run: sudo ufw allow from <your-subnet> to any port {port} proto tcp"
+    )
+
+
 def doctor() -> None:
     ok = True
 
@@ -208,6 +230,9 @@ def doctor() -> None:
         check(False, "", "service not running (iphone-camera start)", required=False)
         check(port_free(cfg["port"]), f"port {cfg['port']} is free",
               f"port {cfg['port']} is already in use", required=False)
+
+    warning = firewall_warning(cfg["port"])
+    check(warning is None, f"firewall allows TCP {cfg['port']}", warning or "", required=False)
 
     print(f"\n  phone URL: {config.url(cfg)}")
     raise SystemExit(0 if ok else 1)
