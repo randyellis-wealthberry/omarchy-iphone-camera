@@ -3,7 +3,7 @@
 
   iphone-camera start|stop|restart|enable|disable
   iphone-camera status [--json]
-  iphone-camera url | qr | copy
+  iphone-camera url | qr | qr-window | copy
   iphone-camera resolution <540p|720p|1080p>
   iphone-camera set <key> <value>
   iphone-camera doctor
@@ -123,6 +123,38 @@ def show_qr() -> None:
     print()
     print("Scan with the iPhone Camera app, open the link in Safari, accept the")
     print("certificate warning, then tap Start.")
+
+
+def qr_png() -> Path:
+    """Write the phone URL as a PNG and return its path."""
+    if not shutil.which("qrencode"):
+        die("qrencode is missing (sudo pacman -S qrencode)")
+    config.ensure_dirs()
+    path = config.STATE_DIR / "qr.png"
+    subprocess.run(
+        ["qrencode", "-o", str(path), "-s", "12", "-m", "4", "-l", "M", config.url()],
+        check=True,
+    )
+    return path
+
+
+def show_qr_window() -> None:
+    """Open the QR as an image. A terminal QR scrolls off short terminals and
+    depends on font metrics; a picture scans reliably."""
+    path = qr_png()
+    for viewer in ("imv", "swayimg", "loupe", "xdg-open"):
+        if shutil.which(viewer):
+            subprocess.Popen(
+                [viewer, str(path)],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+            print(path)
+            return
+    # No image viewer at all: fall back to the terminal.
+    show_qr()
 
 
 def copy_url() -> None:
@@ -278,6 +310,8 @@ def main(argv: list[str]) -> int:
         show_url()
     elif command == "qr":
         show_qr()
+    elif command == "qr-window":
+        show_qr_window()
     elif command == "copy":
         copy_url()
     elif command == "resolution":

@@ -60,7 +60,7 @@ Panel {
     }
     else if (row === "service") run([root.serviceOn ? "stop" : "start"])
     else if (row === "qr") {
-      Quickshell.execDetached(["omarchy-launch-floating-terminal-with-presentation", root.cli + " qr"])
+      root.run(["qr-window"])
       root.close()
     }
     else if (row === "copy") { run(["copy"]); root.close() }
