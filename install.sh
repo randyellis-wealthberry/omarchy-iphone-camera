@@ -30,11 +30,40 @@ systemctl --user restart iphone-camera.service
 
 echo "==> Bar widget"
 plugins="$HOME/.config/omarchy/plugins"
+dest="$plugins/$plugin_id"
 mkdir -p "$plugins"
-# Installed with `omarchy plugin add`, the checkout already is the plugin.
-if [[ "$(realpath "$here")" != "$(realpath -m "$plugins/$plugin_id")" ]]; then
-  [[ -e "$plugins/$plugin_id" ]] || ln -s "$here" "$plugins/$plugin_id"
+# Quickshell refuses to load a plugin whose module path is outside the config
+# folder, so a symlink to ~/Projects does not work. Install a copy instead and
+# record where it came from, for uninstall.
+copied=0
+if [[ -L "$dest" ]]; then
+  # A symlink resolves to the same path as $here, so test for it explicitly.
+  rm -f "$dest"
 fi
+if [[ "$(realpath "$here")" != "$(realpath -m "$dest")" ]]; then
+  mkdir -p "$dest"
+  if command -v rsync >/dev/null; then
+    rsync -a --delete \
+      --exclude '.git' --exclude 'tests' --exclude '__pycache__' \
+      "$here/" "$dest/"
+  else
+    rm -rf "$dest"
+    mkdir -p "$dest"
+    cp -a "$here/manifest.json" "$here/Panel.qml" "$here/bin" "$here/lib" "$here/share" "$dest/"
+  fi
+  printf '%s\n' "$here" > "$dest/.installed-from"
+  copied=1
+fi
+
+# The command and service should use the installed copy, not the checkout, so
+# the bar and the daemon never run different code.
+if (( copied )); then
+  ln -sfn "$dest/bin/iphone-camera" "$HOME/.local/bin/iphone-camera"
+  install -m644 "$dest/share/iphone-camera.service" "$HOME/.config/systemd/user/iphone-camera.service"
+  systemctl --user daemon-reload
+  systemctl --user restart iphone-camera.service
+fi
+
 if command -v omarchy >/dev/null; then
   omarchy-shell shell rescanPlugins >/dev/null 2>&1 || true
   omarchy plugin enable "$plugin_id" >/dev/null 2>&1 || true

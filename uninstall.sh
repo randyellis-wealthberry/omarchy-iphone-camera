@@ -17,10 +17,10 @@ echo "==> Command"
 
 echo "==> Bar widget"
 link="$HOME/.config/omarchy/plugins/$plugin_id"
-if [[ -L "$link" ]]; then
-  rm -f "$link"
-elif [[ -d "$link" && "$(realpath "$link")" == "$(realpath "$here")" ]]; then
+if [[ -f "$link/.installed-from" ]] && [[ "$(cat "$link/.installed-from")" == "$(realpath "$here")" ]]; then
   rm -rf "$link"
+elif [[ -L "$link" ]]; then
+  rm -f "$link"
 fi
 command -v omarchy-shell >/dev/null && omarchy-shell shell rescanPlugins >/dev/null 2>&1 || true
 
