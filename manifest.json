@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "id": "iphone-camera",
+  "name": "iPhone Camera",
+  "version": "0.1.0",
+  "author": "Randy Ellis",
+  "license": "MIT",
+  "description": "Turn an iPhone into a system webcam for any meeting app. The phone streams over Wi-Fi; the feed lands on a V4L2 loopback device that Zoom, Meet, Teams, Discord, OBS and browsers can use like any other camera.",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "Panel.qml"
+  },
+  "barWidget": {
+    "displayName": "iPhone Camera",
+    "description": "Connect an iPhone as a webcam, show the pairing QR code, and pick a resolution.",
+    "category": "Media",
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {},
+    "schema": []
+  }
+}

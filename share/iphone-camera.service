@@ -1,0 +1,18 @@
+[Unit]
+Description=iPhone Camera webcam bridge
+Documentation=https://github.com/randyellis/omarchy-iphone-camera
+After=graphical-session.target network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=%h/.local/bin/iphone-camera daemon
+Restart=on-failure
+RestartSec=3
+Nice=-5
+# Deliberately unhardened: the daemon needs /dev/video*, the network, ffmpeg
+# and the user's home. Sandboxing here mostly produces confusing failures.
+NoNewPrivileges=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=default.target

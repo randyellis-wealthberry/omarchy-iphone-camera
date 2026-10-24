@@ -1,0 +1,275 @@
+#!/usr/bin/env python3
+"""iphone-camera: use an iPhone as a webcam for Omarchy.
+
+  iphone-camera start|stop|restart|enable|disable
+  iphone-camera status [--json]
+  iphone-camera url | qr | copy
+  iphone-camera resolution <540p|720p|1080p>
+  iphone-camera set <key> <value>
+  iphone-camera doctor
+  iphone-camera setup
+  iphone-camera logs [--follow]
+  iphone-camera daemon [--device /dev/video43] [--port 4711]
+
+The phone is the camera; the desktop sees a normal V4L2 device, so any meeting
+app works without plugins or drivers.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import shutil
+import socket
+import subprocess
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / "lib"))
+
+from iphonecamera import config  # noqa: E402
+
+UNIT = config.UNIT
+BIN = Path.home() / ".local/bin" / "iphone-camera"
+
+
+def die(message: str) -> None:
+    print(f"iphone-camera: {message}", file=sys.stderr)
+    raise SystemExit(1)
+
+
+def systemctl(*args: str) -> int:
+    return subprocess.call(["systemctl", "--user", *args])
+
+
+def service_active() -> bool:
+    return (
+        subprocess.call(
+            ["systemctl", "--user", "--quiet", "is-active", UNIT],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        == 0
+    )
+
+
+def installed() -> bool:
+    return config.pick_device() is not None and shutil.which("ffmpeg") is not None
+
+
+def port_free(port: int) -> bool:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            sock.bind(("0.0.0.0", port))
+        except OSError:
+            return False
+    return True
+
+
+# --------------------------------------------------------------------------
+# Commands
+# --------------------------------------------------------------------------
+
+
+def status(as_json: bool) -> None:
+    state = config.read_state()
+    active = service_active()
+    if not active:
+        state = {"state": "stopped"}
+    cfg = config.load()
+    device = config.pick_device(cfg)
+    payload = {
+        **state,
+        "config": cfg,
+        "device": device,
+        "url": config.url(cfg),
+        "installed": installed(),
+        "service": active,
+    }
+    if as_json:
+        print(json.dumps(payload))
+        return
+
+    line = state.get("state", "stopped")
+    if line == "active":
+        line += f" · {state.get('fps', 0)} fps · {state.get('kbps', 0)} kbit/s"
+        line += f" · {state.get('clients', 0)} phone(s)"
+    elif line == "connected":
+        line += " · waiting for the first frame"
+    elif line == "error":
+        line += f" · {state.get('error', 'unknown error')}"
+    print(line)
+    print(f"  {'device':<10} {device or 'none (run setup)'}")
+    print(f"  {'phone':<10} {payload['url']}")
+    if state.get("near") is not None:
+        print(f"  {'bluetooth':<10} {'nearby' if state['near'] else 'not connected'}")
+    print(f"  {'stream':<10} {cfg['width']}x{cfg['height']} @ {cfg['fps']} fps")
+
+
+def show_url() -> None:
+    print(config.url())
+
+
+def show_qr() -> None:
+    url = config.url()
+    print(url)
+    print()
+    if shutil.which("qrencode"):
+        subprocess.call(["qrencode", "-t", "ANSIUTF8", "-m", "1", url])
+    else:
+        print("(install qrencode for a scannable code)")
+    print()
+    print("Scan with the iPhone Camera app, open the link in Safari, accept the")
+    print("certificate warning, then tap Start.")
+
+
+def copy_url() -> None:
+    url = config.url()
+    for tool in (["wl-copy"], ["xclip", "-selection", "clipboard"]):
+        if shutil.which(tool[0]):
+            subprocess.run(tool, input=url.encode(), check=False)
+            print(url)
+            return
+    die("no clipboard tool found (wl-copy or xclip)")
+
+
+def coerce(key: str, value: str):
+    kind = config.TYPES.get(key)
+    if kind is None:
+        die(f"unknown setting {key!r}; one of: {', '.join(config.TYPES)}")
+    if kind is bool:
+        lowered = value.lower()
+        if lowered in ("1", "true", "on", "yes"):
+            return True
+        if lowered in ("0", "false", "off", "no"):
+            return False
+        die(f"{key} takes on or off")
+    try:
+        return kind(value)
+    except ValueError:
+        die(f"{key} takes a {kind.__name__}")
+
+
+def set_value(key: str, value: str) -> None:
+    cfg = config.load()
+    cfg[key] = coerce(key, value)
+    config.save(cfg)
+    print(f"{key} = {cfg[key]}")
+    if service_active():
+        systemctl("restart", UNIT)
+
+
+def set_resolution(name: str) -> None:
+    if name not in config.RESOLUTIONS:
+        die(f"resolution is one of: {', '.join(config.RESOLUTIONS)}")
+    width, height = config.RESOLUTIONS[name]
+    cfg = config.load()
+    cfg["width"], cfg["height"] = width, height
+    config.save(cfg)
+    print(f"resolution = {width}x{height} ({name})")
+    print("Reload the page on the iPhone to apply it.")
+
+
+def doctor() -> None:
+    ok = True
+
+    def check(condition, good, bad, required=True):
+        nonlocal ok
+        print(("  ok   " if condition else "  FAIL " if required else "  warn ") + (good if condition else bad))
+        if required:
+            ok = ok and bool(condition)
+
+    cfg = config.load()
+    device = config.pick_device(cfg)
+    check(bool(device), f"loopback device {device}", "no v4l2loopback device (run: iphone-camera setup)")
+    check(shutil.which("ffmpeg") is not None, "ffmpeg", "ffmpeg missing (run: iphone-camera setup)")
+    check(shutil.which("openssl") is not None, "openssl", "openssl missing")
+    check(shutil.which("qrencode") is not None, "qrencode", "qrencode missing (QR code disabled)", required=False)
+
+    try:
+        cert, key = config.ensure_cert(cfg)
+        check(cert.exists() and key.exists(), f"certificate for {config.host(cfg)}",
+              "certificate could not be created")
+    except Exception as exc:  # noqa: BLE001 - surface anything openssl says
+        check(False, "", f"certificate: {exc}")
+
+    if service_active():
+        check(True, "service running", "")
+    else:
+        check(False, "", "service not running (iphone-camera start)", required=False)
+        check(port_free(cfg["port"]), f"port {cfg['port']} is free",
+              f"port {cfg['port']} is already in use", required=False)
+
+    print(f"\n  phone URL: {config.url(cfg)}")
+    raise SystemExit(0 if ok else 1)
+
+
+def setup() -> None:
+    script = ROOT / "install.sh"
+    if not script.exists():
+        die(f"install.sh not found at {script}")
+    os.execv("/bin/bash", ["bash", str(script)])
+
+
+def logs(follow: bool) -> None:
+    cmd = ["journalctl", "--user", "-u", UNIT, "-n", "50", "--no-pager"]
+    if follow:
+        cmd.append("-f")
+    os.execvp("journalctl", cmd)
+
+
+def main(argv: list[str]) -> int:
+    if not argv or argv[0] in ("-h", "--help", "help"):
+        print(__doc__.strip())
+        return 0
+
+    command, *rest = argv
+
+    if command == "start":
+        systemctl("start", UNIT)
+        print(f"Camera ready: {config.url()}")
+    elif command == "stop":
+        systemctl("stop", UNIT)
+        print("Camera bridge stopped.")
+    elif command == "restart":
+        systemctl("restart", UNIT)
+        print(f"Camera ready: {config.url()}")
+    elif command == "enable":
+        systemctl("enable", "--now", UNIT)
+    elif command == "disable":
+        systemctl("disable", "--now", UNIT)
+    elif command == "status":
+        status("--json" in rest)
+    elif command in ("url", "link"):
+        show_url()
+    elif command == "qr":
+        show_qr()
+    elif command == "copy":
+        copy_url()
+    elif command == "resolution":
+        if not rest:
+            die("usage: iphone-camera resolution 540p|720p|1080p")
+        set_resolution(rest[0])
+    elif command == "set":
+        if len(rest) != 2:
+            die("usage: iphone-camera set <key> <value>")
+        set_value(rest[0], rest[1])
+    elif command == "doctor":
+        doctor()
+    elif command == "setup":
+        setup()
+    elif command == "logs":
+        logs("--follow" in rest or "-f" in rest)
+    elif command == "daemon":
+        from iphonecamera.daemon import main as daemon_main
+
+        return daemon_main(rest)
+    else:
+        die(f"unknown command {command!r}; try iphone-camera --help")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))

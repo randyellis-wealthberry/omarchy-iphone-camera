@@ -1,0 +1,351 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0e1116">
+<title>iPhone Camera</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #0e1116;
+    --panel: #161b22;
+    --line: #242c37;
+    --text: #e6edf3;
+    --muted: #8b98a5;
+    --accent: #7aa2f7;
+    --good: #3fb950;
+    --bad: #f85149;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg); color: var(--text);
+    font: 15px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+    display: flex; flex-direction: column;
+    padding: max(14px, env(safe-area-inset-top)) 14px max(14px, env(safe-area-inset-bottom));
+    gap: 14px;
+  }
+  header { display: flex; align-items: center; gap: 10px; }
+  header h1 { font-size: 16px; margin: 0; font-weight: 600; letter-spacing: .2px; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); }
+  .dot.on { background: var(--good); box-shadow: 0 0 10px var(--good); }
+  .dot.err { background: var(--bad); }
+  .pill {
+    margin-left: auto; font-size: 12px; font-weight: 600; letter-spacing: .4px;
+    text-transform: uppercase; color: var(--muted); border: 1px solid var(--line);
+    padding: 5px 10px; border-radius: 999px;
+  }
+  .stage {
+    position: relative; flex: 1; min-height: 220px; background: #000;
+    border-radius: 16px; overflow: hidden; border: 1px solid var(--line);
+  }
+  video { width: 100%; height: 100%; object-fit: contain; background: #000; }
+  video.mirror { transform: scaleX(-1); }
+  .placeholder {
+    position: absolute; inset: 0; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 8px; text-align: center;
+    padding: 24px; color: var(--muted);
+  }
+  .placeholder strong { color: var(--text); font-size: 16px; }
+  .placeholder svg { opacity: .5; }
+  .hud {
+    position: absolute; left: 10px; bottom: 10px; display: flex; gap: 6px;
+    font-size: 11px; font-variant-numeric: tabular-nums; color: #cdd6e0;
+  }
+  .hud span { background: rgba(0,0,0,.55); border-radius: 6px; padding: 3px 7px; }
+  .controls { display: flex; gap: 10px; }
+  button {
+    flex: 1; appearance: none; border: 1px solid var(--line); background: var(--panel);
+    color: var(--text); font: inherit; font-weight: 600; border-radius: 12px;
+    padding: 14px 16px; min-height: 52px;
+  }
+  button:disabled { opacity: .4; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #06121f; }
+  button.danger { background: #2a1416; border-color: #5a2529; color: #ffb4ae; }
+  .row { display: flex; gap: 8px; }
+  .row button { flex: 0 0 auto; padding: 10px 14px; min-height: 44px; font-size: 13px; }
+  .row button.active { border-color: var(--accent); color: var(--accent); }
+  details { border-top: 1px solid var(--line); padding-top: 10px; }
+  summary { color: var(--muted); font-size: 13px; }
+  details p { color: var(--muted); font-size: 13px; margin: 8px 0 0; }
+  code { background: var(--panel); padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+  .banner {
+    display: none; background: #2a1416; border: 1px solid #5a2529; color: #ffb4ae;
+    border-radius: 10px; padding: 10px 12px; font-size: 13px;
+  }
+  .banner.show { display: block; }
+</style>
+</head>
+<body>
+<header>
+  <span class="dot" id="dot"></span>
+  <h1>iPhone Camera</h1>
+  <span class="pill" id="pill">idle</span>
+</header>
+
+<div class="banner" id="banner"></div>
+
+<div class="stage" id="stage">
+  <video id="video" playsinline autoplay muted></video>
+  <div class="placeholder" id="placeholder">
+    <svg width="46" height="46" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+      <path d="M4 8h3l1.5-2h7L17 8h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1Z"/>
+      <circle cx="12" cy="13" r="3.5"/>
+    </svg>
+    <strong>Ready to stream</strong>
+    <div>Tap Start, then leave this page open.</div>
+  </div>
+  <div class="hud" id="hud" hidden>
+    <span id="hudRes">–</span><span id="hudFps">0 fps</span><span id="hudRate">0 kbit/s</span>
+  </div>
+</div>
+
+<div class="row">
+  <button id="flip" disabled>Flip camera</button>
+  <button id="mirror" disabled>Mirror</button>
+</div>
+
+<div class="controls">
+  <button class="primary" id="start">Start</button>
+  <button class="danger" id="stop" disabled>Stop</button>
+</div>
+
+<details>
+  <summary>Not working?</summary>
+  <p><strong>Certificate warning.</strong> This page is served by your own computer with a
+     self-signed certificate. Choose <em>Show Details → visit this website</em> once.</p>
+  <p><strong>Black screen in a meeting.</strong> Keep Safari in the foreground and the screen
+     awake; iOS stops camera capture when the app is backgrounded or locked.</p>
+  <p><strong>Wireless only.</strong> Bluetooth is used only to notice that the phone is nearby.
+     Video needs Wi-Fi or USB — a Bluetooth link is roughly 50× too slow for 720p.</p>
+</details>
+
+<script>
+(() => {
+  "use strict";
+
+  const $ = (id) => document.getElementById(id);
+  const video = $("video");
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d", { alpha: false, willReadFrequently: false });
+
+  const dot = $("dot"), pill = $("pill"), banner = $("banner"), hud = $("hud");
+  const startBtn = $("start"), stopBtn = $("stop"), flipBtn = $("flip"), mirrorBtn = $("mirror");
+
+  const token = new URLSearchParams(location.search).get("t") || "";
+  const wsUrl = (location.protocol === "https:" ? "wss://" : "ws://") + location.host +
+                "/ws" + (token ? "?t=" + encodeURIComponent(token) : "");
+
+  let stream = null, socket = null, running = false;
+  let facing = "environment", mirrored = false, wakeLock = null;
+  let rafId = 0, inFlight = false, lastSent = 0;
+  let target = { width: 1280, height: 720, fps: 30, quality: 0.75 };
+  let sentFrames = 0, sentBytes = 0, lastStat = performance.now();
+  let reconnectDelay = 500, reconnectTimer = 0;
+
+  // ---------------------------------------------------------------- helpers
+
+  function setState(state, text) {
+    pill.textContent = text;
+    dot.className = "dot" + (state === "live" ? " on" : state === "error" ? " err" : "");
+  }
+
+  function fail(message) {
+    banner.textContent = message;
+    banner.classList.add("show");
+    setState("error", "error");
+  }
+
+  function clearError() {
+    banner.classList.remove("show");
+  }
+
+  function setRunningUI(on) {
+    startBtn.disabled = on;
+    stopBtn.disabled = !on;
+    flipBtn.disabled = !on;
+    mirrorBtn.disabled = !on;
+    $("placeholder").style.display = on ? "none" : "flex";
+    hud.hidden = !on;
+  }
+
+  // ---------------------------------------------------------------- websocket
+
+  function connect() {
+    if (!running) return;
+    socket = new WebSocket(wsUrl);
+    socket.binaryType = "arraybuffer";
+
+    socket.onopen = () => {
+      reconnectDelay = 500;
+      setState("live", "live");
+      clearError();
+      socket.send(JSON.stringify({
+        type: "hello",
+        width: target.width, height: target.height, fps: target.fps,
+        camera: facing, agent: navigator.userAgent
+      }));
+    };
+
+    socket.onclose = () => {
+      if (!running) return;
+      setState("warn", "reconnecting");
+      reconnectTimer = setTimeout(connect, reconnectDelay);
+      reconnectDelay = Math.min(reconnectDelay * 2, 5000);
+    };
+
+    socket.onerror = () => {};
+  }
+
+  function sendFrame(blob) {
+    if (!socket || socket.readyState !== WebSocket.OPEN) return;
+    if (socket.bufferedAmount > 512 * 1024) return; // Wi-Fi is behind; skip, don't queue
+    socket.send(blob);
+    sentFrames++;
+    sentBytes += blob.size;
+  }
+
+  // ---------------------------------------------------------------- capture
+
+  function draw() {
+    const vw = video.videoWidth, vh = video.videoHeight;
+    if (!vw || !vh) return;
+    if (canvas.width !== target.width || canvas.height !== target.height) {
+      canvas.width = target.width;
+      canvas.height = target.height;
+    }
+    const scale = Math.max(target.width / vw, target.height / vh); // cover
+    const sw = target.width / scale, sh = target.height / scale;
+    const sx = (vw - sw) / 2, sy = (vh - sh) / 2;
+    ctx.drawImage(video, sx, sy, sw, sh, 0, 0, target.width, target.height);
+  }
+
+  function tick(now) {
+    if (!running) return;
+    const interval = 1000 / target.fps;
+    if (now - lastSent >= interval && !inFlight) {
+      lastSent = now;
+      draw();
+      inFlight = true;
+      canvas.toBlob((blob) => {
+        inFlight = false;
+        if (blob && running) sendFrame(blob);
+      }, "image/jpeg", target.quality);
+    }
+    rafId = requestAnimationFrame(tick);
+  }
+
+  async function openCamera() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      throw new Error("This browser cannot capture video. Open the link in Safari.");
+    }
+    const constraints = {
+      audio: false,
+      video: {
+        facingMode: { ideal: facing },
+        width: { ideal: target.width },
+        height: { ideal: target.height },
+        frameRate: { ideal: target.fps, max: target.fps }
+      }
+    };
+    stream = await navigator.mediaDevices.getUserMedia(constraints);
+    video.srcObject = stream;
+    await video.play().catch(() => {});
+    const track = stream.getVideoTracks()[0];
+    const settings = track.getSettings ? track.getSettings() : {};
+    mirrored = (settings.facingMode || facing) === "user";
+    video.classList.toggle("mirror", mirrored);
+    mirrorBtn.classList.toggle("active", mirrored);
+    $("hudRes").textContent = (video.videoWidth || target.width) + "×" + (video.videoHeight || target.height);
+    try {
+      if ("wakeLock" in navigator) wakeLock = await navigator.wakeLock.request("screen");
+    } catch (_) {}
+    track.addEventListener("ended", () => { if (running) stop(); });
+  }
+
+  async function start() {
+    clearError();
+    setState("warn", "starting");
+    startBtn.disabled = true;
+    try {
+      const cfg = await fetch("/config.json" + (token ? "?t=" + encodeURIComponent(token) : ""))
+        .then((r) => (r.ok ? r.json() : {}))
+        .catch(() => ({}));
+      target.width = cfg.width || target.width;
+      target.height = cfg.height || target.height;
+      target.fps = cfg.fps || target.fps;
+      target.quality = cfg.jpegQuality || target.quality;
+
+      await openCamera();
+      running = true;
+      setRunningUI(true);
+      lastSent = 0;
+      connect();
+      rafId = requestAnimationFrame(tick);
+    } catch (error) {
+      running = false;
+      setRunningUI(false);
+      startBtn.disabled = false;
+      const name = error && error.name;
+      if (name === "NotAllowedError") {
+        fail("Camera access was denied. Allow it in Settings → Safari → Camera, then reload.");
+      } else if (name === "NotFoundError") {
+        fail("No camera was found on this device.");
+      } else {
+        fail((error && error.message) || "Could not start the camera.");
+      }
+    }
+  }
+
+  function stop() {
+    running = false;
+    cancelAnimationFrame(rafId);
+    clearTimeout(reconnectTimer);
+    if (socket) { try { socket.close(); } catch (_) {} socket = null; }
+    if (stream) { stream.getTracks().forEach((t) => t.stop()); stream = null; }
+    if (wakeLock) { wakeLock.release().catch(() => {}); wakeLock = null; }
+    video.srcObject = null;
+    setRunningUI(false);
+    startBtn.disabled = false;
+    setState("idle", "idle");
+  }
+
+  function flip() {
+    const wasRunning = running;
+    if (wasRunning) stop();
+    facing = facing === "environment" ? "user" : "environment";
+    if (wasRunning) start();
+  }
+
+  function toggleMirror() {
+    mirrored = !mirrored;
+    video.classList.toggle("mirror", mirrored);
+    mirrorBtn.classList.toggle("active", mirrored);
+  }
+
+  // ---------------------------------------------------------------- stats
+
+  setInterval(() => {
+    const now = performance.now();
+    const seconds = (now - lastStat) / 1000;
+    if (seconds > 0 && running) {
+      $("hudFps").textContent = Math.round(sentFrames / seconds) + " fps";
+      $("hudRate").textContent = Math.round((sentBytes * 8) / 1000 / seconds) + " kbit/s";
+    }
+    sentFrames = 0; sentBytes = 0; lastStat = now;
+  }, 1000);
+
+  startBtn.addEventListener("click", start);
+  stopBtn.addEventListener("click", stop);
+  flipBtn.addEventListener("click", flip);
+  mirrorBtn.addEventListener("click", toggleMirror);
+
+  if (location.protocol !== "https:" && !["localhost", "127.0.0.1"].includes(location.hostname)) {
+    fail("Safari only allows the camera on HTTPS. Open the https:// link printed by the desktop.");
+  }
+  setRunningUI(false);
+})();
+</script>
+</body>
+</html>
