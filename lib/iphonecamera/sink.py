@@ -161,7 +161,14 @@ class V4L2Sink:
             "-loglevel", "error",
             "-fflags", "nobuffer",
             "-flags", "low_delay",
-            "-f", "mjpeg",
+            # image2pipe + a 32-byte probe makes ffmpeg open the v4l2 device on
+            # the first frame. With "-f mjpeg" and default probing it buffers
+            # for seconds (or until EOF), so the device never goes live and
+            # meeting apps cannot see it.
+            "-probesize", "32",
+            "-analyzeduration", "0",
+            "-f", "image2pipe",
+            "-vcodec", "mjpeg",
             "-i", "pipe:0",
             "-vf", filtergraph,
             "-pix_fmt", "yuv420p",

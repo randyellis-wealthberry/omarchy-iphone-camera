@@ -78,8 +78,9 @@ systemctl --user enable --now iphone-camera
 4. Tap **Start**, keep Safari in the foreground.
 5. In the meeting app, pick **iPhone Camera** (`/dev/video43`).
 
-The first client to open the loopback device gets frames; when nobody is
-watching, the daemon releases the device after 15 seconds.
+The device is always visible to apps. Until the phone connects it shows a
+still "waiting for the phone" frame, which is what keeps v4l2loopback in
+capture mode (see [Why a still frame?](#why-a-still-frame)).
 
 ### CLI
 
@@ -109,6 +110,19 @@ Settings live in `~/.config/iphone-camera/settings.json`; runtime state in
 The virtual camera is 720p30 by default because that is what meeting apps
 actually send to the other side. 1080p is available when you record instead.
 
+## Why a still frame?
+
+`v4l2loopback` runs with `exclusive_caps=1` because that is what browsers and
+WebRTC apps require. In that mode the device only announces CAPTURE while a
+producer is attached; with no producer it looks like an *output* device and
+simply disappears from camera pickers.
+
+So the daemon keeps a producer attached permanently and re-sends a still frame
+five times a second while the phone is idle. The device is therefore always
+listed in Zoom/Meet/Teams, showing "waiting for the phone" until real frames
+arrive. This is also why `iphone-camera status` reports `waiting` rather than
+`stopped` once the service is up.
+
 ## Security
 
 - The phone URL carries a random token (`/?t=…`), so a neighbour on the same
@@ -136,6 +150,11 @@ context; make sure you opened `https://`, not `http://`. Allow camera access in
 **Black frames in the meeting app.** Another process may hold `/dev/video43`.
 `iphone-camera doctor` and `fuser -v /dev/video43` will say. Only one writer is
 allowed per loopback node.
+
+**The camera is missing from the app's list.** Check that the service is
+running (`iphone-camera status` should say `waiting`, not `stopped`). Without a
+producer, v4l2loopback hides the device in `exclusive_caps` mode; the daemon's
+still frame is what keeps it visible.
 
 **`/dev/video43` is missing.** `iphone-camera setup`, then reboot if the module
 was busy during install.

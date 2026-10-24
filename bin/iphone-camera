@@ -184,6 +184,13 @@ def doctor() -> None:
     cfg = config.load()
     device = config.pick_device(cfg)
     check(bool(device), f"loopback device {device}", "no v4l2loopback device (run: iphone-camera setup)")
+    if device:
+        label = next(
+            (n["name"] for n in config.loopback_devices() if n["device"] == device), ""
+        )
+        check(label == config.LABEL, f"label {label!r}", 
+              f"label is {label!r}; the merged module config applies after a reboot",
+              required=False)
     check(shutil.which("ffmpeg") is not None, "ffmpeg", "ffmpeg missing (run: iphone-camera setup)")
     check(shutil.which("openssl") is not None, "openssl", "openssl missing")
     check(shutil.which("qrencode") is not None, "qrencode", "qrencode missing (QR code disabled)", required=False)

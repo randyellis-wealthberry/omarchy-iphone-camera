@@ -246,22 +246,23 @@ def video_nodes() -> list[dict]:
 def loopback_devices() -> list[dict]:
     return [
         node for node in video_nodes()
-        if node["virtual"] and "loopback" in _driver_name(node["device"])
+        if node["virtual"] and is_loopback(_sysfs(node["device"]))
     ]
 
 
-def _driver_name(device: str) -> str:
-    try:
-        out = subprocess.run(
-            ["v4l2-ctl", "--device", device, "--info"],
-            capture_output=True,
-            text=True,
-            timeout=3,
-        ).stdout
-    except (OSError, subprocess.SubprocessError):
-        return ""
-    match = re.search(r"Driver name\s*:\s*(\S+)", out)
-    return match.group(1).lower() if match else ""
+def _sysfs(device: str) -> Path:
+    return Path("/sys/class/video4linux") / Path(device).name
+
+
+def is_loopback(sysfs: Path) -> bool:
+    """Identify v4l2loopback without opening the node.
+
+    Opening a loopback device matters: in exclusive_caps mode the first opener
+    makes it announce either OUTPUT or CAPTURE, and a nosy `v4l2-ctl --info`
+    would latch it to the wrong side. `max_openers` is a v4l2loopback-only
+    sysfs attribute, so this stays hands-off.
+    """
+    return (sysfs / "max_openers").exists()
 
 
 def pick_device(cfg: dict | None = None) -> str | None:
@@ -277,7 +278,7 @@ def pick_device(cfg: dict | None = None) -> str | None:
         return configured if Path(configured).exists() else None
 
     for node in loopback_devices():
-        if node["name"] == LABEL:
+        if _label(node["name"]) == LABEL:
             return node["device"]
 
     # Nothing labelled yet: take a virtual device that is clearly not in use by
@@ -287,3 +288,13 @@ def pick_device(cfg: dict | None = None) -> str | None:
     if free:
         return free[0]["device"]
     return None
+
+
+def _label(name: str) -> str:
+    """Normalise a card label.
+
+    A module that was loaded before a config change can carry stray quotes in
+    its label ("iPhone Camera). Matching should survive that until a reboot
+    reloads v4l2loopback with the merged options.
+    """
+    return name.strip().strip('"').strip()

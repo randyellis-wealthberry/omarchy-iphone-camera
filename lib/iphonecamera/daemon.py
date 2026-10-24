@@ -7,10 +7,12 @@ import signal
 import sys
 import threading
 import time
+from pathlib import Path
 
 from . import config, proximity, server, sink
 
-IDLE_STOP_SECONDS = 15
+ROOT = Path(__file__).resolve().parents[2]
+PLACEHOLDER = ROOT / "share" / "placeholder.jpg"
 
 
 def _install_signals(stop: threading.Event) -> None:
@@ -55,6 +57,44 @@ def main(argv: list[str] | None = None) -> int:
         print(f"iphone-camera: {message}", file=sys.stderr)
         return 2
 
+    placeholder = PLACEHOLDER.read_bytes() if PLACEHOLDER.exists() else b""
+    keepalive = threading.Event()
+
+    def idle_frame() -> bytes | None:
+        """A still frame so the loopback device always has a live producer.
+
+        v4l2loopback's exclusive_caps mode only announces CAPTURE (i.e. looks
+        like a webcam in apps) while a producer is attached. ffmpeg also needs
+        a steady trickle of frames before it opens the device at all, so a
+        still is re-sent whenever the phone is not sending anything.
+        """
+        return placeholder or None
+
+    def prime() -> None:
+        if not Path(device).exists():
+            return
+        try:
+            if not pipe.running:
+                pipe.start()
+        except Exception as exc:  # noqa: BLE001 - retried by the loop
+            print(f"iphone-camera: cannot start the sink: {exc}", file=sys.stderr)
+            return
+        frame = idle_frame()
+        if frame:
+            pipe.write(frame)
+
+    def keepalive_loop() -> None:
+        while not keepalive.is_set():
+            if Path(device).exists():
+                if not pipe.running:
+                    prime()
+                elif placeholder and time.monotonic() - bridge.stats.last_frame > 0.4:
+                    pipe.write(placeholder)
+            keepalive.wait(0.2)
+
+    prime()
+    threading.Thread(target=keepalive_loop, name="keepalive", daemon=True).start()
+
     stop = threading.Event()
     _install_signals(stop)
     started = time.time()
@@ -67,12 +107,6 @@ def main(argv: list[str] | None = None) -> int:
             snapshot = bridge.stats.snapshot()
             fps, kbps = snapshot["frames"], round(snapshot["bytes"] * 8 / 1000, 1)
             clients = snapshot["clients"]
-            idle_for = time.monotonic() - pipe.last_frame if pipe.last_frame else 1e9
-
-            # Release the loopback node when nobody is watching, so a stale
-            # last frame does not sit frozen in every camera picker.
-            if not clients and pipe.running and idle_for > IDLE_STOP_SECONDS:
-                pipe.stop()
 
             if cfg.get("bluetoothDevice"):
                 nearby = proximity.is_near(str(cfg["bluetoothDevice"]))
@@ -102,6 +136,7 @@ def main(argv: list[str] | None = None) -> int:
             )
             stop.wait(1.0)
     finally:
+        keepalive.set()
         bridge.stop()
         pipe.stop()
         config.write_state({"state": "stopped", "device": device})

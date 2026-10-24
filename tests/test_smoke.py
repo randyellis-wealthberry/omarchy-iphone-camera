@@ -189,6 +189,20 @@ class ConfigTests(unittest.TestCase):
         self.assertTrue(config.TYPES)
         self.assertIs(config.TYPES["fps"], int)
 
+    def test_loopback_marker(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            sysfs = Path(tmp)
+            self.assertFalse(config.is_loopback(sysfs))
+            (sysfs / "max_openers").write_text("10\n")
+            self.assertTrue(config.is_loopback(sysfs))
+
+    def test_label_normalisation(self):
+        self.assertEqual(config._label('"iPhone Camera'), "iPhone Camera")
+        self.assertEqual(config._label("iPhone Camera"), "iPhone Camera")
+        self.assertEqual(
+            config._label('FaceTime HD Camera (Effects)"'), "FaceTime HD Camera (Effects)"
+        )
+
 
 class ModprobeTests(unittest.TestCase):
     def test_merges_with_an_existing_plugin(self):
@@ -204,8 +218,9 @@ class ModprobeTests(unittest.TestCase):
 
             self.assertIn("devices=2", line)
             self.assertIn("video_nr=42,43", line)
-            self.assertIn('"FaceTime HD Camera (Effects)"', line)
-            self.assertIn('"iPhone Camera"', line)
+            # One pair of quotes around the whole list; per-entry quotes end up
+            # inside the kernel's labels.
+            self.assertIn('card_label="FaceTime HD Camera (Effects),iPhone Camera"', line)
             self.assertIn("exclusive_caps=1,1", line)
             self.assertTrue(out.read_text().startswith("# Written by omarchy-iphone-camera"))
 
@@ -233,7 +248,10 @@ class SinkTests(unittest.TestCase):
         command = pipe._command()
         self.assertIn("/dev/video43", command)
         self.assertIn("yuv420p", command)
-        self.assertIn("mjpeg", command)
+        # image2pipe + a tiny probe is what makes ffmpeg open the device on the
+        # first frame instead of buffering until EOF.
+        self.assertIn("image2pipe", command)
+        self.assertIn("32", command)
         self.assertIn("scale=1280:720", " ".join(command))
 
     def test_odd_sizes_are_rounded_down(self):

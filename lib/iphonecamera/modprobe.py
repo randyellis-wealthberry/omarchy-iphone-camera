@@ -60,10 +60,6 @@ def _labels(values: list[str]) -> list[str]:
     return out
 
 
-def _quote(label: str) -> str:
-    return f'"{label}"' if (" " in label or "," in label) else label
-
-
 def build(params: dict[str, list[str]], label: str = LABEL, number: int = NUMBER) -> str:
     video_nr = _numbers(params.get("video_nr", []))
     card_label = _labels(params.get("card_label", []))
@@ -80,11 +76,18 @@ def build(params: dict[str, list[str]], label: str = LABEL, number: int = NUMBER
     while len(exclusive) < len(video_nr):
         exclusive.append(exclusive[-1] if exclusive else "1")
 
+    # Quote the list once, not each entry: kmod strips one layer of quotes and
+    # the kernel then splits the value on commas. Quoting each entry leaves the
+    # inner quotes in the label (the bug this comment exists to prevent).
+    labels = ",".join(card_label[: len(video_nr)])
+    if " " in labels or "," in labels:
+        labels = f'"{labels}"'
+
     fields = [
         "options v4l2loopback",
         f"devices={len(video_nr)}",
         "video_nr=" + ",".join(str(n) for n in video_nr),
-        "card_label=" + ",".join(_quote(l) for l in card_label[: len(video_nr)]),
+        "card_label=" + labels,
         "exclusive_caps=" + ",".join(exclusive[: len(video_nr)]),
         "max_buffers=" + params.get("max_buffers", ["2"])[0],
     ]
